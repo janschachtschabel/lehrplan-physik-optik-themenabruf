@@ -29,6 +29,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mem_lehrplan.fetch import harvest  # noqa: E402
 
+# Two encodings side by side. ex:522 uses the specific sub-properties
+# (LP_0000026 / LP_0000047); ex:900 mirrors what the live endpoint actually
+# returned: the generic super-property LP_0000024, where only the object's
+# rdf:type reveals that it is a Jahrgangsstufe, a Niveaustufe, or -- via a
+# sub-class of Bildungsgangniveau -- a level at all.
+#
 # Mirrors the Sachsen pattern: the Lehrplan over-asserts BFO_0000051 to every
 # descendant (lp522 -> k1 as well as lb2 -> k1), which is what the real graphs do.
 SYNTHETIC_DATA = """
@@ -54,6 +60,20 @@ ex:7053 a lp:LP_0002115 ;
 
 ex:9001 a lp:LP_0002113 ;
     rdfs:label "Lernbereich 3: Elektrizitaet" .
+
+ex:900 a lp:LP_0000818 ;
+    rdfs:label "Physik Sek I (Stil Berlin)" ;
+    lp:LP_0000537 ex:fach-physik ;
+    lp:LP_0000029 ex:sachsen ;
+    lp:LP_0000024 ex:jgs8, ex:niveauC, ex:gymSek1 ;
+    obo:BFO_0000051 ex:901 .
+
+ex:901 a lp:LP_0002113 ;
+    rdfs:label "Themenfeld: Optik und Licht" .
+
+ex:jgs8    a lp:LP_0000009 ; rdfs:label "Jahrgangsstufe 8"@de .
+ex:niveauC a lp:LP_0000443 ; rdfs:label "Niveaustufe C"@de .
+ex:gymSek1 a lp:LP_0000069 ; rdfs:label "Gymnasialniveau Sek I"@de .
 
 ex:fach-physik rdfs:label "Physik"@de .
 ex:sachsen     rdfs:label "Sachsen"@de .
@@ -98,8 +118,9 @@ def main(ontology_path: str) -> int:
             failures.append(f"{label}: expected {expected!r}, got {actual!r}")
 
     print("\nassertions:")
-    check("Lehrplaene gefunden", result["anzahl"]["lehrplaene"], 1)
-    lehrplan = result["lehrplaene"][0]
+    check("Lehrplaene gefunden", result["anzahl"]["lehrplaene"], 2)
+    by_label = {entry["label"]: entry for entry in result["lehrplaene"]}
+    lehrplan = by_label["Physik Oberschule (SN)"]
     check("Bundesland", [entry["label"] for entry in lehrplan["bundesland"]], ["Sachsen"])
     check(
         "Schulstufe des Lehrplans",
@@ -107,7 +128,26 @@ def main(ontology_path: str) -> int:
         ["Sekundarbereich I"],
     )
     # "Lernbereich 3: Elektrizitaet" must not match the optics keywords.
-    check("Treffer (nur Optik)", result["anzahl"]["treffer"], 2)
+    check("Treffer (nur Optik)", result["anzahl"]["treffer"], 3)
+
+    generic = by_label["Physik Sek I (Stil Berlin)"]
+    stufen = generic["stufen"]
+    check(
+        "Jahrgangsstufe via LP_0000024",
+        [entry["label"] for entry in stufen.get("jahrgangsstufe", [])],
+        ["Jahrgangsstufe 8"],
+    )
+    check(
+        "Niveaustufe via LP_0000024",
+        [entry["label"] for entry in stufen.get("niveaustufe", [])],
+        ["Niveaustufe C"],
+    )
+    check(
+        "Bildungsgangniveau via Unterklasse",
+        [entry["label"] for entry in stufen.get("bildungsgangniveau", [])],
+        ["Gymnasialniveau Sek I"],
+    )
+    check("Erbt Stufen an den Knoten", generic["treffer"][0]["stufen_quelle"], "lehrplan")
 
     nodes = {node["label"]: node for node in lehrplan["treffer"]}
     check("Rolle Lernbereich", nodes["Lernbereich 2: Optik"]["rollen"], ["themenbereich"])

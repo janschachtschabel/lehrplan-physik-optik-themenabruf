@@ -52,6 +52,30 @@ STUFEN_PROPERTIES = {
 
 DESCRIPTIVE_PROPERTIES = {**KONTEXT_PROPERTIES, **STUFEN_PROPERTIES}
 
+# The state graphs also assert the super-property LP_0000024 ("wird beschrieben
+# von") directly instead of the specific sub-property -- confirmed by the
+# predicate audit on the Berlin Lehrplan, which carries LP_0000024 but neither
+# LP_0000026 nor LP_0000047. For those objects the bucket is decided by the
+# object's own rdf:type instead of by the predicate.
+PROP_BESCHRIEBEN_VON = "LP_0000024"
+BUCKET_GENERIC = "beschrieben_von"
+
+STUFEN_TYPE_ROOTS = {
+    "jahrgangsstufe": "LP_0000009",
+    "schulstufe": "LP_0000020",
+    "niveaustufe": "LP_0000443",
+    "bildungsgangniveau": "LP_0000028",
+    "niveau": "LP_0000037",
+}
+
+KONTEXT_TYPE_ROOTS = {
+    "bundesland": "LP_0000040",
+    "schulart": "LP_0000111",
+    "schulfach": "LP_0000001",
+}
+
+TYPE_ROOTS = {**STUFEN_TYPE_ROOTS, **KONTEXT_TYPE_ROOTS}
+
 # Default keyword set for the optics topic. Deliberately broad: curriculum
 # wording differs per state ("Optik" in SN, "Licht und Sehen" in BY, ...).
 OPTIK_STICHWOERTER = (
@@ -88,8 +112,10 @@ DEFAULT_ENDPOINT = "https://sparql.mem.edufeed.org/sparql/"
 #   CE-Kompetenzspezifikation      13 sub-classes, max depth 1
 #   CE-Lerninhalt                   1 sub-class,   max depth 1
 #   owl:intersectionOf lists       at most 7 members
+#   Niveau LP_0000037             105 sub-classes, max depth 4 (deepest TYPE_ROOT)
 #
 # Re-measure with tools/measure_depths.py after an ontology update.
 MAX_LEHRPLAN_SUBCLASS_DEPTH = 2
 MAX_CE_SUBCLASS_DEPTH = 4
 MAX_INTERSECTION_LIST_LENGTH = 8
+MAX_TYPE_ROOT_DEPTH = 5

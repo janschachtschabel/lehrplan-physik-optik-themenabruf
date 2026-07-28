@@ -19,13 +19,27 @@ from datetime import datetime, timezone
 from . import queries
 from .classify import build_class_index, node_roles
 from .sparql import SparqlClient, chunked, collect_labelled
-from .vocab import DESCRIPTIVE_PROPERTIES, ONTOLOGY, STUFEN_PROPERTIES
+from .vocab import (
+    BUCKET_GENERIC,
+    DESCRIPTIVE_PROPERTIES,
+    ONTOLOGY,
+    PROP_BESCHRIEBEN_VON,
+    STUFEN_PROPERTIES,
+    TYPE_ROOTS,
+)
 
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 40
 
 _PROPERTY_NAMES = {ONTOLOGY + pid: name for name, pid in DESCRIPTIVE_PROPERTIES.items()}
+_GENERIC_PROPERTY = ONTOLOGY + PROP_BESCHRIEBEN_VON
+_ROOT_BUCKETS = {ONTOLOGY + pid: name for name, pid in TYPE_ROOTS.items()}
+
+# Buckets that count as an educational level, regardless of which of the two
+# encodings (specific sub-property or generic property plus object type) the
+# state graph used.
+_STUFEN_BUCKETS = tuple(STUFEN_PROPERTIES)
 
 
 def _select_chunked(client: SparqlClient, build, uris: list[str]) -> list[dict[str, str]]:
@@ -35,24 +49,69 @@ def _select_chunked(client: SparqlClient, build, uris: list[str]) -> list[dict[s
     return rows
 
 
+def _resolve_type_buckets(client: SparqlClient, type_uris: list[str]) -> dict[str, str]:
+    """Map each class URI to a bucket name, following sub-class chains if needed."""
+    buckets = {uri: _ROOT_BUCKETS[uri] for uri in type_uris if uri in _ROOT_BUCKETS}
+    unresolved = [uri for uri in type_uris if uri not in buckets]
+    if unresolved:
+        for row in _select_chunked(client, queries.type_roots, unresolved):
+            root = _ROOT_BUCKETS.get(row.get("root", ""))
+            if root:
+                buckets.setdefault(row["type"], root)
+    return buckets
+
+
 def fetch_attributes(client: SparqlClient, uris: list[str]) -> dict[str, dict[str, list[dict[str, str]]]]:
-    """Map each subject URI to its descriptive attributes, grouped by name."""
+    """Map each subject URI to its descriptive attributes, grouped by name.
+
+    Works for Lehrpläne and for tree nodes alike -- both carry the same
+    descriptive properties. Statements using the generic super-property are
+    bucketed by the object's ``rdf:type``; anything unrecognised lands in
+    ``beschrieben_von`` so it stays visible instead of being dropped.
+    """
     rows = _select_chunked(client, queries.descriptive_attributes, uris)
-    grouped: dict[str, dict[str, list[dict[str, str]]]] = {}
+
+    # One statement can yield several rows (multiple object types), so collect
+    # the types per statement before deciding on a single bucket.
+    statements: dict[tuple[str, str, str], dict] = {}
     for row in rows:
-        name = _PROPERTY_NAMES.get(row.get("p", ""))
-        subject = row.get("s")
-        if not name or not subject:
+        if not row.get("s") or not row.get("o"):
+            continue
+        key = (row["s"], row.get("p", ""), row["o"])
+        entry = statements.setdefault(key, {"label": "", "types": set()})
+        if not entry["label"] and row.get("oLabel"):
+            entry["label"] = row["oLabel"]
+        if row.get("oType"):
+            entry["types"].add(row["oType"])
+
+    all_types = sorted({t for entry in statements.values() for t in entry["types"]})
+    type_buckets = _resolve_type_buckets(client, all_types) if all_types else {}
+
+    grouped: dict[str, dict[str, list[dict[str, str]]]] = {}
+    for (subject, predicate, obj), entry in statements.items():
+        name = _bucket_for(predicate, entry["types"], type_buckets)
+        if not name:
             continue
         bucket = grouped.setdefault(subject, {}).setdefault(name, [])
-        entry = {"uri": row["o"], "label": row.get("oLabel", "")}
-        if entry not in bucket:
-            bucket.append(entry)
+        candidate = {"uri": obj, "label": entry["label"]}
+        if candidate not in bucket:
+            bucket.append(candidate)
     return grouped
 
 
+def _bucket_for(predicate: str, object_types: set[str], type_buckets: dict[str, str]) -> str | None:
+    if predicate in _PROPERTY_NAMES:
+        return _PROPERTY_NAMES[predicate]
+    if predicate != _GENERIC_PROPERTY:
+        return None
+    for object_type in sorted(object_types):
+        if object_type in type_buckets:
+            return type_buckets[object_type]
+    return BUCKET_GENERIC
+
+
 def _stufen(attributes: dict[str, list[dict[str, str]]]) -> dict[str, list[dict[str, str]]]:
-    return {name: attributes[name] for name in STUFEN_PROPERTIES if attributes.get(name)}
+    return {name: attributes[name] for name in _STUFEN_BUCKETS if attributes.get(name)}
 
 
 def fetch_nodes(client: SparqlClient, lehrplan_uri: str, keywords: list[str]) -> dict[str, dict]:
@@ -131,6 +190,7 @@ def harvest(
                 "schulfach": attributes.get("schulfach", []),
                 "schulart": attributes.get("schulart", []),
                 "stufen": lehrplan_stufen,
+                "weitere": attributes.get(BUCKET_GENERIC, []),
                 "treffer": [
                     _assemble_node(node, index, node_attributes, parents, lehrplan_stufen)
                     for node in nodes_by_lehrplan[entry["uri"]].values()

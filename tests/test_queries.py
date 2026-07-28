@@ -91,9 +91,21 @@ class AttributeQueryTest(unittest.TestCase):
             with self.subTest(pid=pid):
                 self.assertIn(f"lp:{pid}", query)
 
-    def test_super_property_is_not_used_as_a_shortcut(self):
-        # LP_0000024 would only work with property-hierarchy reasoning.
-        self.assertNotIn("lp:LP_0000024", queries.descriptive_attributes(["https://x.org/a"]))
+    def test_generic_super_property_is_queried_as_well(self):
+        # The state graphs assert LP_0000024 directly instead of the specific
+        # sub-property (confirmed by the predicate audit on the Berlin
+        # Lehrplan), so both encodings must be fetched. The object's rdf:type
+        # then decides which bucket the statement belongs to.
+        query = queries.descriptive_attributes(["https://x.org/a"])
+        self.assertIn("lp:LP_0000024", query)
+        self.assertIn("OPTIONAL { ?o rdf:type ?oType }", query)
+
+    def test_type_roots_resolves_level_classes_with_bounded_paths(self):
+        query = queries.type_roots(["https://w3id.org/lehrplan/ontology/LP_0000450"])
+        for pid in ("LP_0000009", "LP_0000020", "LP_0000443"):
+            with self.subTest(pid=pid):
+                self.assertIn(f"lp:{pid}", query)
+        self.assertIn("?type rdfs:subClassOf ?root", query)
 
     def test_class_roles_covers_both_encodings(self):
         query = queries.class_roles(["https://w3id.org/lehrplan/ontology/LP_0002049"])
@@ -120,6 +132,7 @@ class NoTransitivePathTest(unittest.TestCase):
         "class_roles": queries.class_roles(["https://x.org/a"]),
         "predicate_audit": queries.predicate_audit(["https://x.org/a"]),
         "schulfaecher": queries.schulfaecher("Sachsen"),
+        "type_roots": queries.type_roots(["https://x.org/a"]),
     }
 
     def test_no_query_uses_a_transitive_path_operator(self):

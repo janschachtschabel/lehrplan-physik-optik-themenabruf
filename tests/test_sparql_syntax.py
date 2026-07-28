@@ -29,6 +29,7 @@ ALL_QUERIES = {
     "predicate_audit": queries.predicate_audit([LP]),
     "schulfaecher": queries.schulfaecher(),
     "schulfaecher_bundesland": queries.schulfaecher("Sachsen"),
+    "type_roots": queries.type_roots([TYPE]),
 }
 
 

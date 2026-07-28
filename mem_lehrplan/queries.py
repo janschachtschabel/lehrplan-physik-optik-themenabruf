@@ -18,6 +18,9 @@ from .vocab import (
     CLASS_LEHRPLAN,
     DESCRIPTIVE_PROPERTIES,
     HAS_PART,
+    MAX_TYPE_ROOT_DEPTH,
+    PROP_BESCHRIEBEN_VON,
+    TYPE_ROOTS,
     MAX_CE_SUBCLASS_DEPTH,
     MAX_INTERSECTION_LIST_LENGTH,
     MAX_LEHRPLAN_SUBCLASS_DEPTH,
@@ -125,6 +128,7 @@ def lehrplaene(fach_keyword: str, bundesland_keyword: str | None = None, limit: 
         f"    lp:{DESCRIPTIVE_PROPERTIES['schulfach']} ?fach .",
         "?fach rdfs:label ?fachLabel .",
         f'FILTER(CONTAINS(LCASE(STR(?fachLabel)), "{fach}"))',
+        'FILTER(LANG(?lpLabel) IN ("de", ""))',
     ]
     if bundesland_keyword:
         land = validate_keyword(bundesland_keyword).lower()
@@ -137,7 +141,7 @@ def lehrplaene(fach_keyword: str, bundesland_keyword: str | None = None, limit: 
     tail = f"\nLIMIT {int(limit)}" if limit else ""
     return f"""{PREFIXES}
 
-SELECT DISTINCT ?lp ?lpLabel ?fachLabel
+SELECT DISTINCT ?lp ?lpLabel
 WHERE {{
   {body}
 }}
@@ -151,15 +155,17 @@ def descriptive_attributes(subject_uris: Sequence[str]) -> str:
     descriptive properties -- which is why the node level lookup reuses this
     builder instead of duplicating it.
     """
-    properties = " ".join(f"lp:{pid}" for pid in DESCRIPTIVE_PROPERTIES.values())
+    pids = list(DESCRIPTIVE_PROPERTIES.values()) + [PROP_BESCHRIEBEN_VON]
+    properties = " ".join(f"lp:{pid}" for pid in pids)
     return f"""{PREFIXES}
 
-SELECT DISTINCT ?s ?p ?o ?oLabel
+SELECT DISTINCT ?s ?p ?o ?oLabel ?oType
 WHERE {{
   {_values_block("s", subject_uris)}
   VALUES ?p {{ {properties} }}
   ?s ?p ?o .
   {_label_option("o", "oLabel")}
+  OPTIONAL {{ ?o rdf:type ?oType }}
 }}"""
 
 
@@ -233,6 +239,25 @@ WHERE {{
     VALUES ?ceSuper {{ {ce_values} }}
     {_subclass_reaches_variable("type", "ceSuper", MAX_CE_SUBCLASS_DEPTH, "    ")}
   }}
+}}"""
+
+
+def type_roots(type_uris: Sequence[str]) -> str:
+    """Map classes to the known root class they descend from.
+
+    Needed because objects of the generic ``LP_0000024`` are only recognisable
+    by their own ``rdf:type``, and some of those types are sub-classes (Niveau
+    reaches depth 4). Depth zero -- the type *is* a root -- is resolved in
+    :mod:`fetch` without a query.
+    """
+    roots = " ".join(f"lp:{pid}" for pid in TYPE_ROOTS.values())
+    return f"""{PREFIXES}
+
+SELECT DISTINCT ?type ?root
+WHERE {{
+  {_values_block("type", type_uris)}
+  VALUES ?root {{ {roots} }}
+  {_subclass_reaches_variable("type", "root", MAX_TYPE_ROOT_DEPTH, "  ")}
 }}"""
 
 
