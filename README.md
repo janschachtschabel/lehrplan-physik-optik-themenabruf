@@ -1,5 +1,8 @@
 # mem-optik
 
+Ausführliche Projektdokumentation mit Methodik, Ergebnissen und Übertragung auf
+andere Themen: [DOKUMENTATION.md](DOKUMENTATION.md).
+
 Lädt aus dem MEM-Triplestore (Projekt MEM / FWU) alle Lehrpläne eines Fachs,
 filtert deren Themenbereiche und Kompetenzen auf ein Thema (Default: Optik) und
 verknüpft jeden Treffer mit den Bildungsstufen des Lehrplans bzw. des Knotens.
@@ -24,6 +27,24 @@ python -m mem_lehrplan.cli --list-faecher --bundesland Bayern
 
 Endpoint per `--endpoint` oder `MEM_SPARQL_ENDPOINT`; Default ist
 `https://sparql.mem.edufeed.org/sparql/`.
+
+## Gegliederte Uebersicht
+
+```bash
+python optik_uebersicht.py optik_lehrplaene.json
+python optik_uebersicht.py optik_lehrplaene.json -o uebersicht.md --alle
+```
+
+Erzeugt ein Markdown-Dokument, gegliedert nach Bildungsstufe -> Bundesland ->
+Klassenstufe -> Lehrplan -> Bereich, mit Kompetenzen und Inhalten als Listen.
+Eigenstaendiges Skript, nur Standardbibliothek, liest ausschliesslich die JSON.
+
+Fehlende Stufenangaben werden ueber eine Leiter erschlossen (asserted Schulstufe
+-> asserted Jahrgangsstufe -> Lehrplantitel) und im Dokument als abgeleitet
+gekennzeichnet; der Abschnitt *Datenlage* zaehlt aus, wie viele Eintraege aus
+Daten und wie viele aus Ableitung stammen. Treffer, in denen das Stichwort in
+einem laengeren Wort begraben ist ("Licht" in "Wahlpflichtlernbereich"), werden
+per Default weggelassen; `--alle` nimmt sie mit auf.
 
 ## Auswertung
 
@@ -143,14 +164,14 @@ normale `rdfs:subClassOf`-Kette, Kompetenz- und Inhaltsklassen
 Aus dem Projektstamm (dem Ordner mit `mem_lehrplan/`):
 
 ```bash
-python -m unittest discover      # 49 Tests, offline, ohne Netz
+python -m unittest discover      # 73 Tests, offline, ohne Netz
 ```
 
 Nicht `-s tests -t .` verwenden: unter Windows scheitert das mit
 `AssertionError: Path must be within the project`. Explizite Alternative:
 
 ```bash
-python -m unittest tests.test_queries tests.test_classify tests.test_fetch tests.test_report tests.test_sparql_syntax
+python -m unittest tests.test_queries tests.test_classify tests.test_fetch tests.test_report tests.test_uebersicht tests.test_sparql_syntax
 ```
 
 Optional gegen die echten Ontologie-Axiome — verifiziert die Rollenlogik

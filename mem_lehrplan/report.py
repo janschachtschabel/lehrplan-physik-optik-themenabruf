@@ -86,18 +86,23 @@ def unmatched_keywords(result: dict) -> list[str]:
 def suspicious_matches(result: dict) -> list[tuple[str, str]]:
     """Matches that no keyword explains as a standalone word.
 
-    A label is flagged when every keyword it contains sits inside a longer word
-    (no boundary before and after), e.g. "Pflichtbereich" for "Licht". Heuristic,
+    A label is flagged when every keyword it contains is buried inside a longer
+    word, touching no word boundary on either side -- e.g. "Licht" in
+    "Wahlpflichtlernbereich". Compounds carrying the keyword at either end
+    ("Lichtbrechung", "Wellenoptik") are on topic and stay unflagged. Heuristic,
     meant for review rather than automatic removal.
     """
     keywords = result["filter"]["stichwoerter"]
-    boundary = {keyword: re.compile(rf"(?<![\wäöüß]){re.escape(keyword)}", re.IGNORECASE) for keyword in keywords}
-    plain = {keyword: re.compile(re.escape(keyword), re.IGNORECASE) for keyword in keywords}
+    word = r"[\w\u00e4\u00f6\u00fc\u00c4\u00d6\u00dc\u00df]"
+    plain = {k: re.compile(re.escape(k), re.IGNORECASE) for k in keywords}
+    touching = {
+        k: re.compile(rf"(?<!{word}){re.escape(k)}|{re.escape(k)}(?!{word})", re.IGNORECASE) for k in keywords
+    }
     flagged = []
     for lehrplan, node in _nodes(result):
         label = node["label"]
-        contained = [keyword for keyword in keywords if plain[keyword].search(label)]
-        if contained and not any(boundary[keyword].search(label) for keyword in contained):
+        contained = [k for k in keywords if plain[k].search(label)]
+        if contained and not any(touching[k].search(label) for k in contained):
             flagged.append((lehrplan["label"], label))
     return flagged
 
